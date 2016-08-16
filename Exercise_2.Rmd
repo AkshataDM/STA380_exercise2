@@ -1,0 +1,373 @@
+---
+title: "Exercise_2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Exercise 2 
+### Problem 1
+
+```{r}
+suppressMessages(library(ggplot2))
+suppressMessages(library(dplyr))
+suppressMessages(library(gridExtra))
+suppressMessages(library(maps))
+suppressMessages(library(mapdata))
+airlines <- read.csv("ABIA.csv")
+airlines$Year = NULL
+airlines$Month= as.factor(airlines$Month)
+airlines$Cancelled = as.factor(airlines$Cancelled)
+```
+
+
+How are arrival and departure delays distributed across carriers? 
+```{r}
+deptdelays <- airlines %>%
+  group_by(UniqueCarrier) %>%
+  summarise(
+    avgdelay = mean(DepDelay, na.rm = TRUE),
+    mediandelay = median(DepDelay, na.rm = TRUE),
+    maxdelay = max(DepDelay, na.rm = TRUE)
+    )
+arrdelays <- airlines %>%
+  group_by(UniqueCarrier) %>%
+  summarise(
+    avgdelay = mean(ArrDelay,na.rm = TRUE),
+    mediandelay = median(ArrDelay, na.rm = TRUE),
+    maxdelay = max(ArrDelay, na.rm = TRUE)
+    )
+
+
+dept_delay <- ggplot(deptdelays, aes(x=UniqueCarrier, y = avgdelay)) + geom_boxplot() + theme_minimal() + xlab("Unique Carrier") + ylab("Average dept delays") + ggtitle("Average dept delays by carrier")
+arr_delay <- ggplot(arrdelays, aes(x=UniqueCarrier, y = avgdelay)) + geom_boxplot() + theme_minimal() + xlab("Unique Carrier") + ylab("Average arrival delays") + ggtitle("Average arrival delays by carrier")
+
+grid.arrange(dept_delay,arr_delay,ncol = 1)
+```
+
+
+From the above graphs, we can see that B6,EV,F9,UA,WN are flights that have, on average, greater departure delays than arrival delays. Overall, EV,OH and YV are flights that have greatest average delays. The best flights to fly with minimum delays are US, 9E and F9.
+
+
+
+Seasonal delays are heavily influenced by the weather conditions. So, it would be good to look at weather delays by month to understand which months to avoid traveling. 
+
+
+```{r}
+seasondelays <- airlines %>%
+  group_by(Month) %>%
+  summarise(
+    avgdelay = mean(WeatherDelay, na.rm = TRUE),
+    mediandelay = median(WeatherDelay, na.rm = TRUE),
+    maxdelay = max(WeatherDelay, na.rm = TRUE)
+    )
+
+ggplot(seasondelays, aes(x=Month, y = avgdelay)) + geom_point(aes(size = avgdelay),show.legend = FALSE) + theme_minimal() + xlab("Month") + ylab("Average weather delays") + ggtitle("Average seasonal delays by month")
+```
+
+
+March seems to be the worst month to make air travel plans. Why? Is it the destinations? Let's explore
+
+```{r}
+
+airlines_march <- subset(airlines, airlines$Month == 3)
+
+wdelay = airlines_march %>% select(Dest,Lat,Long,WeatherDelay) %>%
+    group_by(Dest,Lat,Long) %>%
+    summarise_each(funs(mean(., na.rm=TRUE)),avg_delay = WeatherDelay)
+
+usa <- map_data("usa") # we already did this, but we can do it again
+
+usa2 = ggplot() + geom_polygon(data = usa, aes(x=long, y = lat, group = group),fill="grey",color="blue") + coord_fixed(1.3)
+
+usa2 + 
+    geom_point(data = wdelay, aes(x = wdelay$Long, y = wdelay$Lat ),color="black", size = 5,show.legend = TRUE) + 
+    geom_point(data = wdelay, aes(x = wdelay$Long, y = wdelay$Lat,color= log(wdelay$avg_delay)), size = 4) +   
+    geom_text(data = wdelay, aes(x = wdelay$Long, y = wdelay$Lat , label = paste("  ", as.character(wdelay$Dest), sep="")), angle = 0, hjust = 0, color = "red",check_overlap = TRUE)  +
+    scale_colour_gradient(name = "Average Delay", 
+                          low = "blue", high = "red")
+
+```
+
+Des Moines Intl. airport has the worst weather related delays for all flights departing from it. Must be something to do with the bad weather in Iowa in March.
+
+Monthly delays are also influenced by security checks - during holiday seasonal months, there would be comparitively heavier checks on security. Let's take a look. 
+
+```{r}
+securitydelays <- airlines %>%
+  group_by(Month) %>%
+  summarise(
+    avgdelay = mean(SecurityDelay, na.rm = TRUE),
+    mediandelay = median(SecurityDelay, na.rm = TRUE),
+    maxdelay = max(SecurityDelay, na.rm = TRUE)
+    )
+
+ggplot(securitydelays, aes(x=Month, y = avgdelay)) + geom_point(aes(size = avgdelay),show.legend = FALSE) + theme_minimal() + xlab("Month") + ylab("Average security delays") + ggtitle("Average security delays by month")
+```
+
+
+October seems to have the highest number of security delays by month. 
+
+Let's explore which flights have the most security delays in October
+
+```{r}
+
+security_delays = subset(airlines, airlines$Month == 10)
+carrier_security_delays <- security_delays %>%
+  group_by(UniqueCarrier) %>%
+  summarise(
+    avgdelay = mean(SecurityDelay, na.rm = TRUE),
+    mediandelay = median(SecurityDelay, na.rm = TRUE),
+    maxdelay = max(SecurityDelay, na.rm = TRUE)
+    )
+
+ggplot(carrier_security_delays, aes(x=UniqueCarrier, y = avgdelay)) + geom_point(aes(size = avgdelay),show.legend = FALSE) + theme_minimal() + xlab("Carrier") + ylab("Average security delays") + ggtitle("Better avoid Mesa airlines")
+```
+
+
+Interesting results - MESA airlines seems to have the highest security related delays in Oct. Why so? Let's explore where MESA airlines usually flies to in this month. We will also look at where SKYWEST ( the second highest ranked airline that has delays ) flies to
+
+```{r}
+mesa_airlines = subset(airlines, airlines$UniqueCarrier == "YV" & airlines$Month == 10)
+
+mesadelay = mesa_airlines %>% select(Dest,Lat,Long,SecurityDelay) %>%
+    group_by(Dest,Lat,Long) %>%
+    summarise_each(funs(mean(., na.rm=TRUE)),avg_delay = SecurityDelay)
+
+usa <- map_data("usa") # we already did this, but we can do it again
+
+usa2 = ggplot() + geom_polygon(data = usa, aes(x=long, y = lat, group = group),fill="grey",color="blue") + coord_fixed(1.3)
+
+usa2 + 
+    geom_point(data = mesadelay, aes(x = mesadelay$Long, y = mesadelay$Lat ),color="black", size = 5,show.legend = TRUE) + 
+    geom_point(data = mesadelay, aes(x = mesadelay$Long, y = mesadelay$Lat,color= log(mesadelay$avg_delay)), size = 4) +   
+    geom_text(data = mesadelay, aes(x = mesadelay$Long, y = mesadelay$Lat , label = paste("  ", as.character(mesadelay$Dest), sep="")), angle = 0, hjust = 0, color = "red",check_overlap = TRUE)  +
+    scale_colour_gradient(name = "Average Delay", 
+                          low = "blue", high = "red")
+
+```
+
+All these destinations represented on the map have the most delays with Mesa airlines. Phoenix could be explained because MESA is a carrier based out of Arizona so a large number of delays are expected due to high volume of MESA airlines in Phoenix. Likewise, since we are looking at data from Austin primarily, there are more Austin related records which explains why we see Austin on the map. 
+
+Let's now look at SKYWEST 
+
+```{r}
+skywest_airlines = subset(airlines, airlines$UniqueCarrier == "OO" & airlines$Month == 10)
+
+skywestdelay = skywest_airlines %>% select(Dest,Lat,Long,SecurityDelay) %>%
+    group_by(Dest,Lat,Long) %>%
+    summarise_each(funs(mean(., na.rm=TRUE)),avg_delay = SecurityDelay)
+
+usa <- map_data("usa") # we already did this, but we can do it again
+
+usa2 = ggplot() + geom_polygon(data = usa, aes(x=long, y = lat, group = group),fill="grey",color="blue") + coord_fixed(1.3)
+usa2 + geom_point(data = skywestdelay, aes(x = skywestdelay$Long, y = skywestdelay$Lat,color = log(skywestdelay$avg_delay)), size = 5,show.legend = TRUE) + 
+    geom_text(data = skywestdelay, aes(x = skywestdelay$Long, y = skywestdelay$Lat , label = paste("  ", as.character(skywestdelay$Dest), sep="")), angle = 0, hjust = 0, color = "red",check_overlap = TRUE)  +
+    scale_colour_gradient(name = "Average Delay", 
+                          low = "blue", high = "red")
+
+```
+
+These are interesting results. SKYWEST experiences the most destination related delays in the points plotted on the map. SLC is easily explained because since the carrier is based out of Utah, there is a high volume of these aircrafts in Salt Lake City. Austin is on the map because like explained previously, this data set has a lot of Austin related records So why does it experience more delays in Denver, Chicago and Los Angeles? It would be meaningful to look at the history of SKYWEST in the other airports from previous years to understand this trend. 
+
+
+
+
+
+### Problem 2 :
+
+```{r}
+suppressMessages(library(tm)) 
+suppressMessages(library(caret))
+suppressMessages(library(glmnet))
+suppressMessages(library(SnowballC))
+```
+
+
+Creating the corpus - 
+We preprocess the data to remove numbers, remove stopwords, make everything lowercase, remove punctuation and remove extra white spaces. 
+We are going to create the document term matrix for both the train and test together to avoid the possibility of seeing some terms that are there in the test but not in training and vice versa.
+
+
+```{r}
+readerPlain = function(fname){
+  readPlain(elem=list(content=readLines(fname)), 
+            id=fname, language='en') }
+
+authors_train <- Sys.glob('ReutersC50/C50train/*')
+file_list_train = NULL
+labels_train = NULL
+authors_test = Sys.glob('ReutersC50/C50test/*')
+file_list_test = NULL
+labels_test = NULL
+
+for(i in authors_train) { 
+  author_name_train = substring(i, first = 21)
+  files_to_add_train = Sys.glob(paste0(i, '/*.txt'))
+  file_list_train = append(file_list_train, files_to_add_train)
+  labels_train = append(labels_train, rep(author_name_train, length(files_to_add_train)))
+}
+
+for(i in authors_test) { 
+  author_name_test = substring(i, first = 20)
+  files_to_add_test = Sys.glob(paste0(i, '/*.txt'))
+  file_list_test = append(file_list_test, files_to_add_test)
+  labels_test = append(labels_test, rep(author_name_test, length(files_to_add_test)))
+}
+
+file_list <- append(file_list_train,file_list_test)
+labels <- unique(append(labels_train,labels_test))
+
+all_docs = lapply(file_list, readerPlain) 
+names(all_docs) = file_list
+names(all_docs) = sub('.txt', '', names(all_docs))
+all_corpus = Corpus(VectorSource(all_docs))
+names(all_corpus) = labels
+
+all_corpus = tm_map(all_corpus, content_transformer(tolower)) # make everything lowercase
+all_corpus = tm_map(all_corpus, content_transformer(removeNumbers)) # remove numbers
+all_corpus = tm_map(all_corpus, content_transformer(removePunctuation)) # remove punctuation
+all_corpus = tm_map(all_corpus, content_transformer(stripWhitespace)) ## remove excess white-space 
+all_corpus = tm_map(all_corpus, content_transformer(removeWords), stopwords("en"))  #remove stop words
+all_corpus <- tm_map(all_corpus, stemDocument)    #stemming the document to reduce the words to their word stem
+
+#creating a document term matrix with tf idf scores 
+dtm <- DocumentTermMatrix(all_corpus,control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
+dtm <- removeSparseTerms(dtm, 0.975) 
+
+```
+
+
+Let now apply multinomial bayes model to the training data set.
+We calculate the weight vector for each author - the weight vector is a weight of each token or word for that author.In order to avoid zero probabilities for those words that could be in the test set but not in training set, we use Lidstone smoothing -
+
+```{r}
+x <- as.matrix(dtm)
+x_train <- x[1:2500,]
+x_test <- x[2501:5000,]
+smooth_count = 1/nrow(x_train)
+
+author_sums <- rowsum(x_train +smooth_count, labels_train)
+wt <- rowSums(author_sums)
+author_wt <- log(author_sums/wt)
+
+```
+
+
+Now, we use the x_test to multiply the log probabilities calculated from the weights of the training set authors
+
+
+```{r}
+
+predicted_proba <- x_test%*%t(author_wt)
+```
+
+
+Now, into a new list predicted_authors we assign for each of the 2500 test points, the author that has the max sum of probabilities.
+
+
+```{r}
+predicted_authors = NULL
+for( i in 1:2500) { 
+  predicted_authors = c(predicted_authors,which.max(predicted_proba[i,]))
+  }
+
+predicted_authors <- as.data.frame(predicted_authors)
+predicted_authors$actual <- rep(1:50,each = 50)
+```
+
+
+Now that we have predicted the authors, let's see the confusion matrix to see how we have performed. 
+
+
+```{r}
+confusionMatrix(predicted_authors$predicted_authors, predicted_authors$actual)
+```
+
+
+The naive bayes model is giving an accuracy of 57.88% on test set. Let's look at another regression model - perhaps the multinomial logistic regression model?
+
+```{r}
+
+pc_x <- prcomp(x)
+#The first 300 components explains 0.06% of variance, so let's use the first 300 components
+transformed_x <- pc_x$x[,1:300]
+train_transformed <- transformed_x[1:2500,]
+test_transformed <- transformed_x[2501:5000,]
+logit_model <- glmnet(y = rep(1:50, each = 50),x = train_transformed,  family = "multinomial", alpha = 0)
+predicted_authors_logit <- as.data.frame(predict(logit_model, newx = test_transformed,type = "class", s=0))
+predicted_authors_logit$actual_authors <- rep(1:50, each = 50)
+confusionMatrix(predicted_authors_logit$`1`,predicted_authors_logit$actual_authors)
+```
+
+An accuracy of 57.96% after performing pca and then doing multinomial logistic regression. Even though the Naive Bayes approach does not perform any better than the multinomial logistic regression, for ease of interpretability, Naive Bayes classification model would be preferred. 
+
+
+
+>Which authors are hardest to predict? 
+
+From the confusion matrix, we can see that Author 8 ( David Lawder ) and Author 44 ( Sarah Davison ) have a balanced accuracy of about 60% in both the regression models.
+After a little bit of Googling about these authors, it is hard not to see why they are the hardest authors to predict - both of them write on contemporary issues and are modernist authors so they use a lot of varied words which does not belong to any particular category per se. 
+
+### Problem 3 
+
+```{r}
+suppressMessages(library(arules))
+detach(package:tm, unload = TRUE)
+groceries <- read.transactions("groceries.txt", format = "basket", sep = ",")
+```
+
+
+To see which items are important in the transcations we use itemFrequencePlot() to plot those items with frequency greater than 10%. Looks like "whole milk" is the most frequently occuring item.
+
+```{r}
+itemFrequencyPlot(groceries, support = 0.1, cex.names=0.8)
+```
+
+
+We will create a set of rules with a low support value of 0.01 and low confidence of 0.2. We are not concerned with eliminating "uninteresting" rules at this point.  
+```{r}
+grocery_rules <- apriori(groceries, parameter = list(support = 0.01, confidence = 0.2, maxlen = 4))
+```
+
+
+Let's look at interesting rules. A rule that has a low support but high confidence is quite unexpected. 
+
+```{r}
+inspect(subset(grocery_rules, subset=support < 0.02 & confidence > 0.5))
+```
+
+
+The values of lift for all these transactions are greater than 1 => the antecedent and precedent in the rules are positively correlated,i.e, there is a higher chance of seeing the antecedent if the precedent occurs. 
+For ex, in transaction 9 {root vegetables,tropical fruit} => {whole milk}, the customer has a 2.23 times more likely to buy whole milk if he/she buys root vegetables and tropical fruit.
+
+
+A classic case of misunderstanding rules arises when we look at only confidence values. High support, high confidence and low lift is not an interesting result. In fact it could be a misleading result.
+```{r}
+inspect(subset(grocery_rules, subset=support < 0.02 & confidence > 0.5 & lift < 1))
+```
+
+
+There doesn't seem to be any transactions. Let's look at those transaction with low lift values 
+
+
+```{r}
+inspect(subset(grocery_rules, subset=lift < 1))
+```
+
+
+These three transactions have negative correlation between the antecedent and precedent. If you buy bottled beer, you are less likely to buy whole milk. This makes a lot of sense because these could be customers who just wanted a few things from the store and are not making deliberate shopping trips with long term goals in mind. 
+
+Let's now look at those transactions with high lift values ( unlikely to be a chance rule ) and see the support and confidence values for those transactions. 
+
+
+```{r}
+inspect(subset(grocery_rules, subset=lift > 1))
+```
+
+
+These results tell us that - if you have a low support and low confidence, we must be cautious about disregarding the rules as uninteresting. The high lift values tell a different story. One possible reason for low confidence and low support values is that these transactions do not occur often ( low support ) and may not have high correctness or reliability ( low confidence ), but still, the high lift value means that the rules are not a coincidence. They do not occur by chance and it is worth the effort paying attention to them. 
+
+For example in transaction 183 {root vegetables,tropical fruit} => {other vegetables} , we are 58% confident that a customer is going to buy other vegetables if he/she buys root vegetables and tropical fruit and they are 3.02 times more likely to buy other vegetables given that they bought root vegetables and tropical fruit. These are not shoppers who grab one or two items out of necessity. 
